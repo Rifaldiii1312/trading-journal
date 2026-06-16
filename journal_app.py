@@ -157,8 +157,7 @@ with col_bottom_right:
                     }
                     """
                     response = model.generate_content([prompt, image])
-                    cleaned_text = response.text.strip().replace("```json", "").replace("
-```", "")
+                    cleaned_text = response.text.strip().replace("```json", "").replace("```", "")
                     data_api = json.loads(cleaned_text)
                     
                     net_pnl = 0
