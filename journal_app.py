@@ -5,9 +5,11 @@ from datetime import datetime
 import requests
 import base64
 import json
+import re
 
 # == 1. AI SETUP VIA OPENROUTER ==
-OPENROUTER_API_KEY = "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"
+# Masukkan API Key OpenRouter lu yang diawali sk-or-v1-...
+OPENROUTER_API_KEY = "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" 
 
 DB_FILE = "trading_journal_10to30.csv"
 
@@ -133,13 +135,23 @@ with col_bottom_right:
         if st.button("🚀 Proses Masuk Jurnal"):
             with st.spinner("AI lagi membaca screenshot lu..."):
                 try:
-                    # Request langsung ke OpenRouter menggunakan model Google Gemini Flash (Gratis)
                     headers = {
                         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                         "Content-Type": "application/json"
                     }
                     
-                    prompt = "Analisis gambar screenshot trading ini. Ekstrak informasi penting dan kembalikan data HANYA dalam format JSON mentah tanpa markdown: {\"Ticker\": \"KODE ASET\", \"Aksi\": \"Beli\" atau \"Jual\", \"Harga Beli\": angka_saja, \"Harga Jual\": angka_saja_jika_jual_jika_beli_isi_0, \"Lot\": angka_saja, \"Catatan\": \"Keterangan singkat\"}"
+                    prompt = """
+                    Analisis gambar screenshot trading ini. Ekstrak informasi penting dan kembalikan data HANYA dalam format JSON mentah wajib seperti ini:
+                    {
+                        "Ticker": "KODE SAHAM",
+                        "Aksi": "Beli" atau "Jual",
+                        "Harga Beli": angka_tanpa_titik_koma,
+                        "Harga Jual": angka_tanpa_titik_koma_jika_beli_isi_0,
+                        "Lot": angka_tanpa_titik_koma,
+                        "Catatan": "Keterangan singkat"
+                    }
+                    Jangan ketik kata-kata lain di luar JSON ini.
+                    """
                     
                     payload = {
                         "model": "google/gemini-2.5-flash:free",
@@ -156,32 +168,49 @@ with col_bottom_right:
                     
                     response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
                     res_json = response.json()
-                    ai_text = res_json['choices'][0]['message']['content'].strip()
                     
-                    # Bersihkan sisa format markdown jika terlanjur keluar
-                    cleaned_text = ai_text.replace("```json", "").replace("```", "").strip()
-                    data_api = json.loads(cleaned_text)
-                    
-                    net_pnl = 0
-                    if data_api["Aksi"] == "Jual" and data_api["Harga Jual"] > 0:
-                        pengali = 100 if data_api["Lot"] >= 1 else 1
-                        net_pnl = (data_api["Harga Jual"] - data_api["Harga Beli"]) * data_api["Lot"] * pengali
-                        net_pnl -= (data_api["Harga Beli"] * data_api["Lot"] * pengali + data_api["Harga Jual"] * data_api["Lot"] * pengali) * 0.002
-                    
-                    new_row = pd.DataFrame([{
-                        "Tanggal": datetime.now().strftime("%Y-%m-%d"),
-                        "Ticker": data_api["Ticker"].upper(),
-                        "Aksi": data_api["Aksi"],
-                        "Harga Beli": float(data_api["Harga Beli"]),
-                        "Harga Jual": float(data_api["Harga Jual"]),
-                        "Lot": float(data_api["Lot"]),
-                        "Net Profit/Loss": net_pnl,
-                        "Catatan": data_api["Catatan"]
-                    }])
-                    
-                    df_journal = pd.concat([df_journal, new_row], ignore_index=True)
-                    save_data(df_journal)
-                    st.success(f"Berhasil ditambahkan ke log: {data_api['Ticker']}!")
-                    st.rerun()
+                    # Cek validasi data dari OpenRouter
+                    if 'choices' not in res_json:
+                        st.error(f"Eror dari server OpenRouter (Kemungkinan kuota harian habis atau sibuk). Respon: {res_json}")
+                    else:
+                        ai_text = res_json['choices'][0]['message']['content'].strip()
+                        
+                        # Ambil teks JSON-nya saja jika AI nakal mengetik teks pembuka tambahan
+                        json_match = re.search(r'\{.*\}', ai_text, re.DOTALL)
+                        if json_match:
+                            cleaned_text = json_match.group(0)
+                        else:
+                            cleaned_text = ai_text
+                        
+                        data_api = json.loads(cleaned_text)
+                        
+                        # Kalkulasi Net PnL otomatis
+                        net_pnl = 0
+                        harga_beli = float(data_api.get("Harga Beli", 0))
+                        harga_jual = float(data_api.get("Harga Jual", 0))
+                        lot = float(data_api.get("Lot", 0))
+                        aksi = data_api.get("Aksi", "Beli")
+                        ticker = data_api.get("Ticker", "UNKNOWN").upper()
+                        
+                        if aksi == "Jual" and harga_jual > 0:
+                            pengali = 100 if lot >= 1 else 1
+                            net_pnl = (harga_jual - harga_beli) * lot * pengali
+                            net_pnl -= (harga_beli * lot * pengali + harga_jual * lot * pengali) * 0.002
+                        
+                        new_row = pd.DataFrame([{
+                            "Tanggal": datetime.now().strftime("%Y-%m-%d"),
+                            "Ticker": ticker,
+                            "Aksi": aksi,
+                            "Harga Beli": harga_beli,
+                            "Harga Jual": harga_jual,
+                            "Lot": lot,
+                            "Net Profit/Loss": net_pnl,
+                            "Catatan": data_api.get("Catatan", "Sukses via AI")
+                        }])
+                        
+                        df_journal = pd.concat([df_journal, new_row], ignore_index=True)
+                        save_data(df_journal)
+                        st.success(f"Berhasil mencatat transaksi: {ticker} ({aksi})!")
+                        st.rerun()
                 except Exception as e:
-                    st.error(f"Gagal memproses gambar. Pastikan API Key benar. Error: {e}")
+                    st.error(f"Gagal memproses gambar. Detail Masalah: {e}")
