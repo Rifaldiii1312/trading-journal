@@ -2,14 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import datetime
-import requests
-import base64
-import json
-import re
-
-# == 1. AI SETUP VIA OPENROUTER ==
-# Masukkan API Key OpenRouter lu yang diawali sk-or-v1-...
-OPENROUTER_API_KEY = "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" 
 
 DB_FILE = "trading_journal_10to30.csv"
 
@@ -24,7 +16,7 @@ def load_data():
 def save_data(df):
     df.to_csv(DB_FILE, index=False)
 
-# == 2. STYLE & THEME CUSTOMIZATION ==
+# == 1. STYLE & THEME CUSTOMIZATION ==
 st.set_page_config(page_title="Trade Summary", layout="wide")
 
 st.markdown("""
@@ -41,7 +33,7 @@ st.markdown("""
 st.title("📊 Trade Summary")
 df_journal = load_data()
 
-# == 3. PRO STATS CALCULATIONS ==
+# == 2. PRO STATS CALCULATIONS ==
 MODAL_AWAL = 10000000
 total_pnl = df_journal["Net Profit/Loss"].sum() if not df_journal.empty else 0
 ekuitas_sekarang = MODAL_AWAL + total_pnl
@@ -57,7 +49,7 @@ max_loss = trades_jual["Net Profit/Loss"].min() if total_trades > 0 and losses >
 avg_profit = trades_jual[trades_jual["Net Profit/Loss"] > 0]["Net Profit/Loss"].mean() if wins > 0 else 0
 avg_loss = trades_jual[trades_jual["Net Profit/Loss"] <= 0]["Net Profit/Loss"].mean() if losses > 0 else 0
 
-# == 4. LAYOUT UTAMA (2 KOLOM BESAR) ==
+# == 3. LAYOUT UTAMA (2 KOLOM BESAR) ==
 col_left, col_right = st.columns([1, 2])
 
 with col_left:
@@ -104,11 +96,11 @@ with col_right:
         chart_data = df_sorted[["Tanggal", "Saldo Ekuitas"]].set_index("Tanggal")
         st.line_chart(chart_data, y="Saldo Ekuitas", use_container_width=True)
     else:
-        st.info("Belum ada data untuk grafik. Upload screenshot trading lu di bawah.")
+        st.info("Belum ada data transaksi. Yuk input trade pertama lu di bawah!")
 
 st.markdown("---")
 
-# == 5. LAYOUT BAWAH (TOP GAINER & IMAGE INPUT) ==
+# == 4. LAYOUT BAWAH (TOP GAINER & INPUT FORM) ==
 col_bottom_left, col_bottom_right = st.columns([1, 1])
 
 with col_bottom_left:
@@ -124,93 +116,49 @@ with col_bottom_left:
         st.caption("Data top gainer kosong.")
 
 with col_bottom_right:
-    st.markdown("### 📸 Scan Screenshot Baru")
-    uploaded_file = st.file_uploader("Upload screenshot transaksi di sini", type=["png", "jpg", "jpeg"])
+    st.markdown("### ✍️ Input Transaksi Cepat (HP Friendly)")
     
-    if uploaded_file is not None:
-        bytes_data = uploaded_file.getvalue()
-        base64_image = base64.b64encode(bytes_data).decode('utf-8')
-        st.image(bytes_data, caption="Preview Porto", width=250)
+    # Form input manual yang ringan & dijamin lancar di HP
+    with st.form("trade_form", clear_on_submit=True):
+        ticker_input = st.text_input("Kode Saham / Aset", placeholder="Contoh: BBRI, GOTO").upper()
+        aksi_input = st.selectbox("Jenis Transaksi", ["Beli", "Jual"])
         
-        if st.button("🚀 Proses Masuk Jurnal"):
-            with st.spinner("AI lagi membaca screenshot lu..."):
-                try:
-                    headers = {
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "Content-Type": "application/json"
-                    }
-                    
-                    prompt = """
-                    Analisis gambar screenshot trading ini. Ekstrak informasi penting dan kembalikan data HANYA dalam format JSON mentah wajib seperti ini:
-                    {
-                        "Ticker": "KODE SAHAM",
-                        "Aksi": "Beli" atau "Jual",
-                        "Harga Beli": angka_tanpa_titik_koma,
-                        "Harga Jual": angka_tanpa_titik_koma_jika_beli_isi_0,
-                        "Lot": angka_tanpa_titik_koma,
-                        "Catatan": "Keterangan singkat"
-                    }
-                    Jangan ketik kata-kata lain di luar JSON ini.
-                    """
-                    
-                    payload = {
-                        "model": "google/gemini-2.5-flash:free",
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": prompt},
-                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                                ]
-                            }
-                        ]
-                    }
-                    
-                    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
-                    res_json = response.json()
-                    
-                    # Cek validasi data dari OpenRouter
-                    if 'choices' not in res_json:
-                        st.error(f"Eror dari server OpenRouter (Kemungkinan kuota harian habis atau sibuk). Respon: {res_json}")
-                    else:
-                        ai_text = res_json['choices'][0]['message']['content'].strip()
-                        
-                        # Ambil teks JSON-nya saja jika AI nakal mengetik teks pembuka tambahan
-                        json_match = re.search(r'\{.*\}', ai_text, re.DOTALL)
-                        if json_match:
-                            cleaned_text = json_match.group(0)
-                        else:
-                            cleaned_text = ai_text
-                        
-                        data_api = json.loads(cleaned_text)
-                        
-                        # Kalkulasi Net PnL otomatis
-                        net_pnl = 0
-                        harga_beli = float(data_api.get("Harga Beli", 0))
-                        harga_jual = float(data_api.get("Harga Jual", 0))
-                        lot = float(data_api.get("Lot", 0))
-                        aksi = data_api.get("Aksi", "Beli")
-                        ticker = data_api.get("Ticker", "UNKNOWN").upper()
-                        
-                        if aksi == "Jual" and harga_jual > 0:
-                            pengali = 100 if lot >= 1 else 1
-                            net_pnl = (harga_jual - harga_beli) * lot * pengali
-                            net_pnl -= (harga_beli * lot * pengali + harga_jual * lot * pengali) * 0.002
-                        
-                        new_row = pd.DataFrame([{
-                            "Tanggal": datetime.now().strftime("%Y-%m-%d"),
-                            "Ticker": ticker,
-                            "Aksi": aksi,
-                            "Harga Beli": harga_beli,
-                            "Harga Jual": harga_jual,
-                            "Lot": lot,
-                            "Net Profit/Loss": net_pnl,
-                            "Catatan": data_api.get("Catatan", "Sukses via AI")
-                        }])
-                        
-                        df_journal = pd.concat([df_journal, new_row], ignore_index=True)
-                        save_data(df_journal)
-                        st.success(f"Berhasil mencatat transaksi: {ticker} ({aksi})!")
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Gagal memproses gambar. Detail Masalah: {e}")
+        c1, c2 = st.columns(2)
+        with c1:
+            harga_beli_input = st.number_input("Harga Beli (Avg)", min_value=0, value=0)
+        with c2:
+            harga_jual_input = st.number_input("Harga Jual (Jika Jual)", min_value=0, value=0)
+            
+        lot_input = st.number_input("Jumlah Lot", min_value=1, value=1)
+        catatan_input = st.text_input("Catatan / Analisa Singkat", placeholder="Contoh: Breakout resistance / Cut loss")
+        
+        uploaded_file = st.file_uploader("Lampirkan Screenshot Porto (Opsional/Arsip)", type=["png", "jpg", "jpeg"])
+        
+        submit_btn = st.form_submit_with_button_options(label="💾 Simpan ke Jurnal")
+        
+        if submit_btn:
+            if ticker_input == "":
+                st.error("Kode saham gak boleh kosong, bro!")
+            else:
+                # Hitung PnL Bersih Otomatis
+                net_pnl = 0
+                if aksi_input == "Jual" and harga_jual_input > 0:
+                    net_pnl = (harga_jual_input - harga_beli_input) * lot_input * 100
+                    # Potong fee broker estimasi 0.2%
+                    net_pnl -= (harga_beli_input * lot_input * 100 + harga_jual_input * lot_input * 100) * 0.002
+                
+                new_row = pd.DataFrame([{
+                    "Tanggal": datetime.now().strftime("%Y-%m-%d"),
+                    "Ticker": ticker_input,
+                    "Aksi": aksi_input,
+                    "Harga Beli": float(harga_beli_input),
+                    "Harga Jual": float(harga_jual_input),
+                    "Lot": float(lot_input),
+                    "Net Profit/Loss": net_pnl,
+                    "Catatan": catatan_input if catatan_input else "Input manual via HP"
+                }])
+                
+                df_journal = pd.concat([df_journal, new_row], ignore_index=True)
+                save_data(df_journal)
+                st.success(f"Mantap! Transaksi {ticker_input} berhasil disimpan.")
+                st.rerun()
