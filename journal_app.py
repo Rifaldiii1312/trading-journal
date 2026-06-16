@@ -72,7 +72,7 @@ with col_left:
         <h2 style='color:#26a69a; margin-top:0;'>{win_rate:.2f}%</h2>
         <p style='font-size:14px; color:#aaa;'>{total_trades} Trades ({wins} Wins / {losses} Losses)</p>
     </div>
-    """, unsafe_html=1)
+    """, unsafe_allow_html=True)
     
     # Pembagian Profit vs Loss Detail
     c_p, c_l = st.columns(2)
