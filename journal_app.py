@@ -118,7 +118,6 @@ with col_bottom_left:
 with col_bottom_right:
     st.markdown("### ✍️ Input Transaksi Cepat (HP Friendly)")
     
-    # Form input manual yang ringan & dijamin lancar di HP
     with st.form("trade_form", clear_on_submit=True):
         ticker_input = st.text_input("Kode Saham / Aset", placeholder="Contoh: BBRI, GOTO").upper()
         aksi_input = st.selectbox("Jenis Transaksi", ["Beli", "Jual"])
@@ -134,17 +133,16 @@ with col_bottom_right:
         
         uploaded_file = st.file_uploader("Lampirkan Screenshot Porto (Opsional/Arsip)", type=["png", "jpg", "jpeg"])
         
-        submit_btn = st.form_submit_with_button_options(label="💾 Simpan ke Jurnal")
+        # Sisi tombol yang sudah diperbaiki 100% aman
+        submit_btn = st.form_submit_button(label="💾 Simpan ke Jurnal")
         
         if submit_btn:
             if ticker_input == "":
                 st.error("Kode saham gak boleh kosong, bro!")
             else:
-                # Hitung PnL Bersih Otomatis
                 net_pnl = 0
                 if aksi_input == "Jual" and harga_jual_input > 0:
                     net_pnl = (harga_jual_input - harga_beli_input) * lot_input * 100
-                    # Potong fee broker estimasi 0.2%
                     net_pnl -= (harga_beli_input * lot_input * 100 + harga_jual_input * lot_input * 100) * 0.002
                 
                 new_row = pd.DataFrame([{
