@@ -82,14 +82,14 @@ with col_left:
             <span style='color:#888; font-size:13px;'>Max Profit</span><br><span class="green-text">Rp {max_profit:,.0f}</span><br><br>
             <span style='color:#888; font-size:13px;'>Avg Profit</span><br><span class="green-text">Rp {avg_profit:,.0f}</span>
         </div>
-        """, unsafe_html=1)
+        """, unsafe_allow_html=True)
     with c_l:
         st.markdown(f"""
         <div class="stat-box">
             <span style='color:#888; font-size:13px;'>Max Loss</span><br><span class="red-text">Rp {max_loss:,.0f}</span><br><br>
             <span style='color:#888; font-size:13px;'>Avg Loss</span><br><span class="red-text">Rp {avg_loss:,.0f}</span>
         </div>
-        """, unsafe_html=1)
+        """, unsafe_allow_html=True)
 
 # --- KOLOM KANAN: REALIZED LOSS & GRAFIK BESAR ---
 with col_right:
