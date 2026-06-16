@@ -4,6 +4,11 @@ import os
 from datetime import datetime
 
 DB_FILE = "trading_journal_10to30.csv"
+IMG_DIR = "saved_screenshots"
+
+# Bikin folder buat nyimpen gambar kalau belum ada
+if not os.path.exists(IMG_DIR):
+    os.makedirs(IMG_DIR)
 
 def load_data():
     if os.path.exists(DB_FILE):
@@ -14,7 +19,7 @@ def load_data():
             return df
         except:
             pass
-    return pd.DataFrame(columns=["Tanggal", "Ticker", "Harga Beli", "Harga Jual", "Lot", "Net Profit/Loss", "Catatan"])
+    return pd.DataFrame(columns=["Tanggal", "Ticker", "Harga Beli", "Harga Jual", "Lot", "Net Profit/Loss", "Catatan", "Screenshot"])
 
 def save_data(df):
     df.to_csv(DB_FILE, index=False)
@@ -118,7 +123,7 @@ with col_bottom_left:
         st.caption("Data top gainer kosong.")
 
 with col_bottom_right:
-    st.markdown("### ✍️ Catat Trade Baru (Setelah Sell)")
+    st.markdown("### ✍️ Catat Trade Baru (+ Bukti Screenshot)")
     
     with st.form("trade_form", clear_on_submit=True):
         ticker_input = st.text_input("Kode Saham / Aset", placeholder="Contoh: BBRI, GOTO").upper()
@@ -130,9 +135,10 @@ with col_bottom_right:
             harga_jual_input = st.number_input("Harga Jual (Avg)", min_value=1, value=110)
             
         lot_input = st.number_input("Jumlah Lot", min_value=1, value=1)
-        catatan_input = st.text_input("Catatan / Analisa Singkat", placeholder="Contoh: Profit taking / Cut loss terpaksa")
+        catatan_input = st.text_input("Catatan / Analisa Singkat", placeholder="Contoh: Profit taking / Breakout")
         
-        uploaded_file = st.file_uploader("Lampirkan Screenshot Porto (Opsional)", type=["png", "jpg", "jpeg"])
+        # Kolom Upload Screenshot sebagai arsip fisik
+        uploaded_file = st.file_uploader("Lampirkan Screenshot Porto (Wajib/Opsional)", type=["png", "jpg", "jpeg"])
         
         submit_btn = st.form_submit_button(label="💾 Simpan ke Jurnal")
         
@@ -140,12 +146,18 @@ with col_bottom_right:
             if ticker_input == "":
                 st.error("Kode saham gak boleh kosong, bro!")
             else:
-                # Rumus profit bersih langsung hitung (Jual - Beli) * Lot * 100 lembar
                 net_pnl = (harga_jual_input - harga_beli_input) * lot_input * 100
-                
-                # Potong biaya fee beli + jual broker (estimasi total sekitar 0.3%)
                 fee_estimasi = (harga_beli_input * lot_input * 100 + harga_jual_input * lot_input * 100) * 0.003
                 net_pnl -= fee_estimasi
+                
+                # Proses simpan file gambar ke folder lokal server
+                img_path = "-"
+                if uploaded_file is not None:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    img_name = f"{timestamp}_{ticker_input}.png"
+                    img_path = os.path.join(IMG_DIR, img_name)
+                    with open(img_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
                 
                 new_row = pd.DataFrame([{
                     "Tanggal": datetime.now().strftime("%Y-%m-%d"),
@@ -154,19 +166,36 @@ with col_bottom_right:
                     "Harga Jual": float(harga_jual_input),
                     "Lot": float(lot_input),
                     "Net Profit/Loss": net_pnl,
-                    "Catatan": catatan_input if catatan_input else "Trade Closed"
+                    "Catatan": catatan_input if catatan_input else "Trade Closed",
+                    "Screenshot": img_path
                 }])
                 
                 df_journal = pd.concat([df_journal, new_row], ignore_index=True)
                 save_data(df_journal)
-                st.success(f"Mantap! Data trade {ticker_input} langsung masuk hitungan.")
+                st.success(f"Mantap! Data trade {ticker_input} beserta screenshot berhasil diarsipkan.")
                 st.rerun()
 
-# == 5. TABEL REKAP SEMUA TRANSAKSI DI BAGIAN PALING BAWAH ==
-st.markdown("### 📋 Log Semua Transaksi")
+# == 5. TABEL REKAP + FITUR LIHAT BUKTI SCREENSHOT ==
+st.markdown("---")
+st.markdown("### 📋 Log Semua Transaksi & Arsip Gambar")
 if not df_journal.empty:
-    display_df = df_journal.copy()
-    display_df["Net Profit/Loss"] = display_df["Net Profit/Loss"].apply(lambda x: f"Rp {x:,.0f}")
-    st.dataframe(display_df.sort_values(by="Tanggal", ascending=False), use_container_width=True)
+    # Kita pakai looping biar user bisa milih mau lihat gambar mana
+    for idx, row in df_journal.sort_index(ascending=False).iterrows():
+        pnl_val = row['Net Profit/Loss']
+        warna_pnl = "green" if pnl_val > 0 else "red"
+        
+        # Desain baris log yang elegan
+        with st.expander(f"📅 {row['Tanggal']} | 📈 {row['Ticker']} | PnL: : {warna_pnl}[Rp {pnl_val:,.0f}]"):
+            c_detail, c_img = st.columns([1, 1])
+            with c_detail:
+                st.write(f"**Harga Beli:** Rp {row['Harga Beli']:,.0f}")
+                st.write(f"**Harga Jual:** Rp {row['Harga Jual']:,.0f}")
+                st.write(f"**Jumlah Lot:** {row['Lot']} Lot")
+                st.write(f"**Catatan:** {row['Catatan']}")
+            with c_img:
+                if row['Screenshot'] != "-" and os.path.exists(str(row['Screenshot'])):
+                    st.image(str(row['Screenshot']), caption="Bukti Transaksi Porto", width=250)
+                else:
+                    st.caption("Gak ada screenshot yang dilampirkan.")
 else:
     st.caption("Belum ada riwayat transaksi yang tercatat.")
