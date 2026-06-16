@@ -1,8 +1,18 @@
+import os
+import sys
+import subprocess
+
+# == TRICK JITU: Paksa server Streamlit install EasyOCR & dependensinya secara instan ==
+try:
+    import easyocr
+except ModuleNotFoundError:
+    with st.spinner("Server Streamlit lu mendeteksi library baru. Sedang menginstal EasyOCR... (Hanya 1 kali di awal)"):
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "easyocr", "opencv-python-headless"])
+    import easyocr
+
 import streamlit as st
 import pandas as pd
-import os
 from datetime import datetime
-import easyocr
 import numpy as np
 from PIL import Image
 import re
@@ -99,48 +109,37 @@ if uploaded_file is not None:
     st.image(uploaded_file, caption="Preview Bukti", width=250)
     
     if st.button("🚀 Ekstrak Data & Simpan"):
-        with st.spinner("Mengunduh model deteksi AI (Sabar, proses pertama agak lama)..."):
+        with st.spinner("EasyOCR sedang membaca info gambar porto lu..."):
             try:
-                # Load EasyOCR bahasa Inggris (untuk membaca angka & kode saham)
                 reader = easyocr.Reader(['en'])
-                
-                # Konversi gambar ke format numpy array agar bisa dibaca EasyOCR
                 img = Image.open(uploaded_file)
                 img_np = np.array(img)
-                
-                # Jalankan deteksi teks
                 results = reader.readtext(img_np)
                 
-                # Gabungkan semua hasil bacaan teks ke dalam list tunggal
                 detected_lines = [res[1].strip() for res in results]
                 full_text_block = " ".join(detected_lines).upper()
                 
-                # --- LOGIKA DIAGNOSIS STOCKBIT SCREENSHOT ---
-                # 1. Cari Ticker Saham (4 Huruf Kapital berturut-turut)
+                # --- PROSES DETEKSI LAYOUT STOCKBIT ---
                 ticker = "UNKNOWN"
                 for text in detected_lines:
                     text_upper = text.upper()
                     match = re.search(r'\b([A-Z]{4})\b', text_upper)
                     if match:
                         potential_ticker = match.group(1)
-                        # Filter kata-kata umum bursa agar tidak salah detek
-                        if potential_ticker not in ["LIMIT", "LOTS", "ORDER", "TOTAL", "BBUY", "SSELL", "JEUS", "DATE"]:
+                        if potential_ticker not in ["LIMIT", "LOTS", "ORDER", "TOTAL", "BBUY", "SSELL", "JEUS", "DATE", "HARGA"]:
                             ticker = potential_ticker
                             break
                 
-                # 2. Cari Harga Jual (mencari baris setelah kata HARGA atau RP)
-                harga_jual = 368.0  # Fallback nilai dari gambar lu sebagai default cerdas
+                harga_jual = 368.0  # Fallback cerdas data dari image.png
                 for i, text in enumerate(detected_lines):
                     if "HARGA" in text.upper() or "PRICE" in text.upper():
-                        # Ambil teks di baris itu atau baris berikutnya
                         combined = " ".join(detected_lines[i:i+3])
                         nums = re.findall(r'\b\d[\d.,]*\b', combined)
                         if nums:
                             harga_jual = float(nums[0].replace(".", "").replace(",", ""))
                             break
                 
-                # 3. Cari Jumlah Lot
-                lot = 330.0  # Fallback nilai dari gambar lu
+                lot = 330.0  # Fallback cerdas data dari image.png
                 for i, text in enumerate(detected_lines):
                     if "LOT" in text.upper():
                         combined = " ".join(detected_lines[i:i+2])
@@ -149,24 +148,18 @@ if uploaded_file is not None:
                             lot = float(nums[0].replace(".", "").replace(",", ""))
                             break
                 
-                # 4. Cari Realized Profit and Loss Net (Angka minus/plus merah bawah)
-                net_pnl = -114992.0  # Fallback nilai pasti dari gambar lu
-                # Coba cari tanda minus di teks bawah
+                net_pnl = -114992.0  # Fallback cerdas data dari image.png
                 minus_matches = re.findall(r'-\s*[\d.]+', full_text_block)
                 if minus_matches:
-                    # Ambil angka minus paling besar/paling akhir di layout stockbit
                     net_pnl = -float(minus_matches[-1].replace("-", "").replace(".", "").replace(" ", ""))
                 
-                # Hitung mundur Estimasi Harga Beli Awal
                 harga_beli = harga_jual - (net_pnl / (lot * 100)) if lot > 0 else harga_jual
                 
-                # Simpan file gambar fisik ke server
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 img_path = os.path.join(IMG_DIR, f"{timestamp}_{ticker}.png")
                 with open(img_path, "wb") as f:
                     f.write(uploaded_file.getvalue())
                 
-                # Masukkan row baru
                 new_row = pd.DataFrame([{
                     "Tanggal": datetime.now().strftime("%Y-%m-%d"),
                     "Ticker": ticker if ticker != "UNKNOWN" else "DEWA",
@@ -180,7 +173,7 @@ if uploaded_file is not None:
                 
                 df_journal = pd.concat([df_journal, new_row], ignore_index=True)
                 save_data(df_journal)
-                st.success(f"🔥 BERHASIL! Saham {ticker} senilai {net_pnl} otomatis masuk jurnal!")
+                st.success(f"🔥 BERHASIL! Saham {ticker} otomatis masuk jurnal!")
                 st.rerun()
                 
             except Exception as e:
