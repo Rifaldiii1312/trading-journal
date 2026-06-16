@@ -9,7 +9,7 @@ import re
 
 # == 1. AI SETUP VIA OPENROUTER ==
 # Masukkan API Key OpenRouter lu yang diawali sk-or-v1-...
-OPENROUTER_API_KEY = "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" 
+OPENROUTER_API_KEY = "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" 
 
 DB_FILE = "trading_journal_10to30.csv"
 
