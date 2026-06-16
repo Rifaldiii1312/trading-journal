@@ -26,7 +26,7 @@ def save_data(df):
 # == 2. STYLE & THEME CUSTOMIZATION ==
 st.set_page_config(page_title="Trade Summary", layout="wide")
 
-# Suntik CSS biar tampilan dark mode, teks, dan box-nya mirip beneran kaya image_4d4eb4.png
+# Suntik CSS biar tampilan dark mode mirip beneran kaya image_4d4eb4.png
 st.markdown("""
     <style>
     .main { background-color: #121212; color: #E0E0E0; }
@@ -101,7 +101,7 @@ with col_right:
         <p style='margin-bottom:2px; color:#888;'>Total Realized Gain/Loss</p>
         <h1 class="{pnl_color}" style='margin-top:0;'>{pnl_sign}Rp {total_pnl:,.0f}</h1>
     </div>
-    """, unsafe_html=1)
+    """, unsafe_allow_html=True)
     
     # Grafik Pertumbuhan Modal Line Chart yang Clean
     if not df_journal.empty:
