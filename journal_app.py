@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import datetime
-import google.generativeai as genai
-from PIL import Image
+import requests
+import base64
 import json
 
-# == 1. AI SETUP ==
-GEMINI_API_KEY = "AQ.Ab8RN6IkO8MceS6LfQtRDYl57T5IEBfFKmUZ3Jabg0V-_82dqg"  # API Key Lu
-genai.configure(api_key=GEMINI_API_KEY)
+# == 1. AI SETUP VIA OPENROUTER ==
+OPENROUTER_API_KEY = "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"
 
 DB_FILE = "trading_journal_10to30.csv"
 
@@ -26,7 +25,6 @@ def save_data(df):
 # == 2. STYLE & THEME CUSTOMIZATION ==
 st.set_page_config(page_title="Trade Summary", layout="wide")
 
-# Suntik CSS biar tampilan dark mode mirip beneran kaya image_4d4eb4.png
 st.markdown("""
     <style>
     .main { background-color: #121212; color: #E0E0E0; }
@@ -46,7 +44,6 @@ MODAL_AWAL = 10000000
 total_pnl = df_journal["Net Profit/Loss"].sum() if not df_journal.empty else 0
 ekuitas_sekarang = MODAL_AWAL + total_pnl
 
-# Hitung data khusus buat statistik kiri ala image_4d4eb4.png
 trades_jual = df_journal[df_journal["Aksi"] == "Jual"] if not df_journal.empty else pd.DataFrame()
 total_trades = len(trades_jual)
 wins = len(trades_jual[trades_jual["Net Profit/Loss"] > 0]) if total_trades > 0 else 0
@@ -61,11 +58,8 @@ avg_loss = trades_jual[trades_jual["Net Profit/Loss"] <= 0]["Net Profit/Loss"].m
 # == 4. LAYOUT UTAMA (2 KOLOM BESAR) ==
 col_left, col_right = st.columns([1, 2])
 
-# --- KOLOM KIRI: STATS & WIN RATE ---
 with col_left:
     st.markdown("### Performance Overview")
-    
-    # Bungkus metrik dalam kotak custom dark mode
     st.markdown(f"""
     <div class="stat-box">
         <p style='margin-bottom:2px; color:#888;'>Win Rate</p>
@@ -74,7 +68,6 @@ with col_left:
     </div>
     """, unsafe_allow_html=True)
     
-    # Pembagian Profit vs Loss Detail
     c_p, c_l = st.columns(2)
     with c_p:
         st.markdown(f"""
@@ -91,7 +84,6 @@ with col_left:
         </div>
         """, unsafe_allow_html=True)
 
-# --- KOLOM KANAN: REALIZED LOSS & GRAFIK BESAR ---
 with col_right:
     pnl_color = "green-text" if total_pnl >= 0 else "red-text"
     pnl_sign = "+" if total_pnl >= 0 else ""
@@ -103,7 +95,6 @@ with col_right:
     </div>
     """, unsafe_allow_html=True)
     
-    # Grafik Pertumbuhan Modal Line Chart yang Clean
     if not df_journal.empty:
         df_sorted = df_journal.sort_values(by="Tanggal").copy()
         df_sorted["Kumulatif PnL"] = df_sorted["Net Profit/Loss"].cumsum()
@@ -115,19 +106,16 @@ with col_right:
 
 st.markdown("---")
 
-# == 5. LAYOUT BAWAH (TOP GAINER & CAMERA INPUT) ==
+# == 5. LAYOUT BAWAH (TOP GAINER & IMAGE INPUT) ==
 col_bottom_left, col_bottom_right = st.columns([1, 1])
 
 with col_bottom_left:
     st.markdown("### 🏆 Top Gainer (Rp)")
     if not df_journal.empty and total_trades > 0:
-        # Kelompokkan data per Saham/Kripto ala tabel kiri bawah di gambar lu
         top_gainer = trades_jual.groupby("Ticker").agg(
             Trades=('Ticker', 'count'),
             PnL=('Net Profit/Loss', 'sum')
         ).sort_values(by="PnL", ascending=False)
-        
-        # Formatting tampilan mata uang di tabel
         top_gainer["PnL"] = top_gainer["PnL"].apply(lambda x: f"Rp {x:,.0f}")
         st.dataframe(top_gainer, use_container_width=True)
     else:
@@ -138,26 +126,40 @@ with col_bottom_right:
     uploaded_file = st.file_uploader("Upload screenshot transaksi di sini", type=["png", "jpg", "jpeg"])
     
     if uploaded_file is not None:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Preview Porto", width=250)
+        bytes_data = uploaded_file.getvalue()
+        base64_image = base64.b64encode(bytes_data).decode('utf-8')
+        st.image(bytes_data, caption="Preview Porto", width=250)
         
         if st.button("🚀 Proses Masuk Jurnal"):
-            with st.spinner("AI Gemini lagi ngebaca data screenshot..."):
+            with st.spinner("AI lagi membaca screenshot lu..."):
                 try:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    prompt = """
-                    Analisis gambar screenshot trading ini. Ekstrak informasi penting dan kembalikan data HANYA dalam format JSON mentah tanpa format markdown seperti berikut:
-                    {
-                        "Ticker": "KODE ASET",
-                        "Aksi": "Beli" atau "Jual",
-                        "Harga Beli": angka_saja,
-                        "Harga Jual": angka_saja_jika_jual_jika_beli_isi_0,
-                        "Lot": angka_saja,
-                        "Catatan": "Keterangan singkat"
+                    # Request langsung ke OpenRouter menggunakan model Google Gemini Flash (Gratis)
+                    headers = {
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json"
                     }
-                    """
-                    response = model.generate_content([prompt, image])
-                    cleaned_text = response.text.strip().replace("```json", "").replace("```", "")
+                    
+                    prompt = "Analisis gambar screenshot trading ini. Ekstrak informasi penting dan kembalikan data HANYA dalam format JSON mentah tanpa markdown: {\"Ticker\": \"KODE ASET\", \"Aksi\": \"Beli\" atau \"Jual\", \"Harga Beli\": angka_saja, \"Harga Jual\": angka_saja_jika_jual_jika_beli_isi_0, \"Lot\": angka_saja, \"Catatan\": \"Keterangan singkat\"}"
+                    
+                    payload = {
+                        "model": "google/gemini-2.5-flash:free",
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                                ]
+                            }
+                        ]
+                    }
+                    
+                    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+                    res_json = response.json()
+                    ai_text = res_json['choices'][0]['message']['content'].strip()
+                    
+                    # Bersihkan sisa format markdown jika terlanjur keluar
+                    cleaned_text = ai_text.replace("```json", "").replace("```", "").strip()
                     data_api = json.loads(cleaned_text)
                     
                     net_pnl = 0
@@ -168,11 +170,11 @@ with col_bottom_right:
                     
                     new_row = pd.DataFrame([{
                         "Tanggal": datetime.now().strftime("%Y-%m-%d"),
-                        "Ticker": data_api["Ticker"],
+                        "Ticker": data_api["Ticker"].upper(),
                         "Aksi": data_api["Aksi"],
-                        "Harga Beli": data_api["Harga Beli"],
-                        "Harga Jual": data_api["Harga Jual"],
-                        "Lot": data_api["Lot"],
+                        "Harga Beli": float(data_api["Harga Beli"]),
+                        "Harga Jual": float(data_api["Harga Jual"]),
+                        "Lot": float(data_api["Lot"]),
                         "Net Profit/Loss": net_pnl,
                         "Catatan": data_api["Catatan"]
                     }])
@@ -182,4 +184,4 @@ with col_bottom_right:
                     st.success(f"Berhasil ditambahkan ke log: {data_api['Ticker']}!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Gagal memproses gambar: {e}")
+                    st.error(f"Gagal memproses gambar. Pastikan API Key benar. Error: {e}")
