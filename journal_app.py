@@ -16,6 +16,11 @@ def load_data():
             df = pd.read_csv(DB_FILE)
             if not df.empty:
                 df["Tanggal"] = pd.to_datetime(df["Tanggal"]).dt.strftime("%Y-%m-%d")
+            
+            # == FIX BIAWAK ERROR: Auto-create kolom 'Screenshot' kalau belum ada ==
+            if "Screenshot" not in df.columns:
+                df["Screenshot"] = "-"
+                
             return df
         except:
             pass
@@ -137,8 +142,7 @@ with col_bottom_right:
         lot_input = st.number_input("Jumlah Lot", min_value=1, value=1)
         catatan_input = st.text_input("Catatan / Analisa Singkat", placeholder="Contoh: Profit taking / Breakout")
         
-        # Kolom Upload Screenshot sebagai arsip fisik
-        uploaded_file = st.file_uploader("Lampirkan Screenshot Porto (Wajib/Opsional)", type=["png", "jpg", "jpeg"])
+        uploaded_file = st.file_uploader("Lampirkan Screenshot Porto (Opsional)", type=["png", "jpg", "jpeg"])
         
         submit_btn = st.form_submit_button(label="💾 Simpan ke Jurnal")
         
@@ -150,7 +154,6 @@ with col_bottom_right:
                 fee_estimasi = (harga_beli_input * lot_input * 100 + harga_jual_input * lot_input * 100) * 0.003
                 net_pnl -= fee_estimasi
                 
-                # Proses simpan file gambar ke folder lokal server
                 img_path = "-"
                 if uploaded_file is not None:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -179,13 +182,11 @@ with col_bottom_right:
 st.markdown("---")
 st.markdown("### 📋 Log Semua Transaksi & Arsip Gambar")
 if not df_journal.empty:
-    # Kita pakai looping biar user bisa milih mau lihat gambar mana
     for idx, row in df_journal.sort_index(ascending=False).iterrows():
         pnl_val = row['Net Profit/Loss']
         warna_pnl = "green" if pnl_val > 0 else "red"
         
-        # Desain baris log yang elegan
-        with st.expander(f"📅 {row['Tanggal']} | 📈 {row['Ticker']} | PnL: : {warna_pnl}[Rp {pnl_val:,.0f}]"):
+        with st.expander(f"📅 {row['Tanggal']} | 📈 {row['Ticker']} | PnL: :{warna_pnl}[Rp {pnl_val:,.0f}]"):
             c_detail, c_img = st.columns([1, 1])
             with c_detail:
                 st.write(f"**Harga Beli:** Rp {row['Harga Beli']:,.0f}")
@@ -193,7 +194,8 @@ if not df_journal.empty:
                 st.write(f"**Jumlah Lot:** {row['Lot']} Lot")
                 st.write(f"**Catatan:** {row['Catatan']}")
             with c_img:
-                if row['Screenshot'] != "-" and os.path.exists(str(row['Screenshot'])):
+                # Cek aman apakah kolom Screenshot ada serves nilainya valid
+                if "Screenshot" in row and row['Screenshot'] != "-" and os.path.exists(str(row['Screenshot'])):
                     st.image(str(row['Screenshot']), caption="Bukti Transaksi Porto", width=250)
                 else:
                     st.caption("Gak ada screenshot yang dilampirkan.")
