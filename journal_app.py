@@ -7,11 +7,14 @@ DB_FILE = "trading_journal_10to30.csv"
 
 def load_data():
     if os.path.exists(DB_FILE):
-        df = pd.read_csv(DB_FILE)
-        df["Tanggal"] = pd.to_datetime(df["Tanggal"]).dt.strftime("%Y-%m-%d")
-        return df
-    else:
-        return pd.DataFrame(columns=["Tanggal", "Ticker", "Aksi", "Harga Beli", "Harga Jual", "Lot", "Net Profit/Loss", "Catatan"])
+        try:
+            df = pd.read_csv(DB_FILE)
+            if not df.empty:
+                df["Tanggal"] = pd.to_datetime(df["Tanggal"]).dt.strftime("%Y-%m-%d")
+            return df
+        except:
+            pass
+    return pd.DataFrame(columns=["Tanggal", "Ticker", "Harga Beli", "Harga Jual", "Lot", "Net Profit/Loss", "Catatan"])
 
 def save_data(df):
     df.to_csv(DB_FILE, index=False)
@@ -38,16 +41,15 @@ MODAL_AWAL = 10000000
 total_pnl = df_journal["Net Profit/Loss"].sum() if not df_journal.empty else 0
 ekuitas_sekarang = MODAL_AWAL + total_pnl
 
-trades_jual = df_journal[df_journal["Aksi"] == "Jual"] if not df_journal.empty else pd.DataFrame()
-total_trades = len(trades_jual)
-wins = len(trades_jual[trades_jual["Net Profit/Loss"] > 0]) if total_trades > 0 else 0
-losses = len(trades_jual[trades_jual["Net Profit/Loss"] <= 0]) if total_trades > 0 else 0
+total_trades = len(df_journal) if not df_journal.empty else 0
+wins = len(df_journal[df_journal["Net Profit/Loss"] > 0]) if total_trades > 0 else 0
+losses = len(df_journal[df_journal["Net Profit/Loss"] <= 0]) if total_trades > 0 else 0
 win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
 
-max_profit = trades_jual["Net Profit/Loss"].max() if total_trades > 0 and wins > 0 else 0
-max_loss = trades_jual["Net Profit/Loss"].min() if total_trades > 0 and losses > 0 else 0
-avg_profit = trades_jual[trades_jual["Net Profit/Loss"] > 0]["Net Profit/Loss"].mean() if wins > 0 else 0
-avg_loss = trades_jual[trades_jual["Net Profit/Loss"] <= 0]["Net Profit/Loss"].mean() if losses > 0 else 0
+max_profit = df_journal["Net Profit/Loss"].max() if total_trades > 0 and wins > 0 else 0
+max_loss = df_journal["Net Profit/Loss"].min() if total_trades > 0 and losses > 0 else 0
+avg_profit = df_journal[df_journal["Net Profit/Loss"] > 0]["Net Profit/Loss"].mean() if wins > 0 else 0
+avg_loss = df_journal[df_journal["Net Profit/Loss"] <= 0]["Net Profit/Loss"].mean() if losses > 0 else 0
 
 # == 3. LAYOUT UTAMA (2 KOLOM BESAR) ==
 col_left, col_right = st.columns([1, 2])
@@ -96,7 +98,7 @@ with col_right:
         chart_data = df_sorted[["Tanggal", "Saldo Ekuitas"]].set_index("Tanggal")
         st.line_chart(chart_data, y="Saldo Ekuitas", use_container_width=True)
     else:
-        st.info("Belum ada data transaksi. Yuk input trade pertama lu di bawah!")
+        st.info("Belum ada data transaksi. Yuk input hasil trade lu di bawah!")
 
 st.markdown("---")
 
@@ -105,8 +107,8 @@ col_bottom_left, col_bottom_right = st.columns([1, 1])
 
 with col_bottom_left:
     st.markdown("### 🏆 Top Gainer (Rp)")
-    if not df_journal.empty and total_trades > 0:
-        top_gainer = trades_jual.groupby("Ticker").agg(
+    if not df_journal.empty:
+        top_gainer = df_journal.groupby("Ticker").agg(
             Trades=('Ticker', 'count'),
             PnL=('Net Profit/Loss', 'sum')
         ).sort_values(by="PnL", ascending=False)
@@ -116,47 +118,55 @@ with col_bottom_left:
         st.caption("Data top gainer kosong.")
 
 with col_bottom_right:
-    st.markdown("### ✍️ Input Transaksi Cepat (HP Friendly)")
+    st.markdown("### ✍️ Catat Trade Baru (Setelah Sell)")
     
     with st.form("trade_form", clear_on_submit=True):
         ticker_input = st.text_input("Kode Saham / Aset", placeholder="Contoh: BBRI, GOTO").upper()
-        aksi_input = st.selectbox("Jenis Transaksi", ["Beli", "Jual"])
         
         c1, c2 = st.columns(2)
         with c1:
-            harga_beli_input = st.number_input("Harga Beli (Avg)", min_value=0, value=0)
+            harga_beli_input = st.number_input("Harga Beli (Avg)", min_value=1, value=100)
         with c2:
-            harga_jual_input = st.number_input("Harga Jual (Jika Jual)", min_value=0, value=0)
+            harga_jual_input = st.number_input("Harga Jual (Avg)", min_value=1, value=110)
             
         lot_input = st.number_input("Jumlah Lot", min_value=1, value=1)
-        catatan_input = st.text_input("Catatan / Analisa Singkat", placeholder="Contoh: Breakout resistance / Cut loss")
+        catatan_input = st.text_input("Catatan / Analisa Singkat", placeholder="Contoh: Profit taking / Cut loss terpaksa")
         
-        uploaded_file = st.file_uploader("Lampirkan Screenshot Porto (Opsional/Arsip)", type=["png", "jpg", "jpeg"])
+        uploaded_file = st.file_uploader("Lampirkan Screenshot Porto (Opsional)", type=["png", "jpg", "jpeg"])
         
-        # Sisi tombol yang sudah diperbaiki 100% aman
         submit_btn = st.form_submit_button(label="💾 Simpan ke Jurnal")
         
         if submit_btn:
             if ticker_input == "":
                 st.error("Kode saham gak boleh kosong, bro!")
             else:
-                net_pnl = 0
-                if aksi_input == "Jual" and harga_jual_input > 0:
-                    net_pnl = (harga_jual_input - harga_beli_input) * lot_input * 100
-                    net_pnl -= (harga_beli_input * lot_input * 100 + harga_jual_input * lot_input * 100) * 0.002
+                # Rumus profit bersih langsung hitung (Jual - Beli) * Lot * 100 lembar
+                net_pnl = (harga_jual_input - harga_beli_input) * lot_input * 100
+                
+                # Potong biaya fee beli + jual broker (estimasi total sekitar 0.3%)
+                fee_estimasi = (harga_beli_input * lot_input * 100 + harga_jual_input * lot_input * 100) * 0.003
+                net_pnl -= fee_estimasi
                 
                 new_row = pd.DataFrame([{
                     "Tanggal": datetime.now().strftime("%Y-%m-%d"),
                     "Ticker": ticker_input,
-                    "Aksi": aksi_input,
                     "Harga Beli": float(harga_beli_input),
                     "Harga Jual": float(harga_jual_input),
                     "Lot": float(lot_input),
                     "Net Profit/Loss": net_pnl,
-                    "Catatan": catatan_input if catatan_input else "Input manual via HP"
+                    "Catatan": catatan_input if catatan_input else "Trade Closed"
                 }])
                 
                 df_journal = pd.concat([df_journal, new_row], ignore_index=True)
                 save_data(df_journal)
-                st.success(f"Mantap! Transaksi {ticker_input} berhasil disimpan.")
+                st.success(f"Mantap! Data trade {ticker_input} langsung masuk hitungan.")
                 st.rerun()
+
+# == 5. TABEL REKAP SEMUA TRANSAKSI DI BAGIAN PALING BAWAH ==
+st.markdown("### 📋 Log Semua Transaksi")
+if not df_journal.empty:
+    display_df = df_journal.copy()
+    display_df["Net Profit/Loss"] = display_df["Net Profit/Loss"].apply(lambda x: f"Rp {x:,.0f}")
+    st.dataframe(display_df.sort_values(by="Tanggal", ascending=False), use_container_width=True)
+else:
+    st.caption("Belum ada riwayat transaksi yang tercatat.")
