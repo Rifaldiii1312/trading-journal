@@ -36,7 +36,7 @@ st.markdown("""
     .green-text { color: #26a69a; font-weight: bold; }
     .red-text { color: #ef5350; font-weight: bold; }
     </style>
-""", unsafe_html=0)
+""", unsafe_allow_html=True)
 
 st.title("📊 Trade Summary")
 df_journal = load_data()
