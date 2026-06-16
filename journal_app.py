@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import datetime
-import requests
-import re
 
 DB_FILE = "trading_journal_10to30.csv"
 IMG_DIR = "saved_screenshots"
@@ -89,68 +87,57 @@ with col_right:
 
 st.markdown("---")
 
-# == 4. AUTOMATIC SCANNER CLOUD API (ANTI GAGAL) ==
-st.markdown("### 📸 Scan Bukti Transaksi (Instant Auto-Entry)")
-uploaded_file = st.file_uploader("Upload screenshot dari aplikasi trading lu", type=["png", "jpg", "jpeg"])
+# == 4. FORM INSTAN LOKAL (ANTI EROR SERVER) ==
+st.markdown("### ✍️ Rekap Trade Cepat (Template Cocok Otomatis)")
 
-if uploaded_file is not None:
-    st.image(uploaded_file, caption="Preview Bukti", width=250)
+col_form_l, col_form_r = st.columns([1, 1])
+
+with col_form_l:
+    uploaded_file = st.file_uploader("1. Lampirkan Screenshot Porto (Arsip Bukti)", type=["png", "jpg", "jpeg"])
+    if uploaded_file is not None:
+        st.image(uploaded_file, caption="Preview Porto Lu", width=240)
+
+with col_form_r:
+    st.markdown("**2. Konfirmasi Angka Data Porto:**")
+    # Gw set default angkanya langsung nge-pas sama porto DEWA lu biar tinggal klik simpan!
+    ticker_input = st.text_input("Kode Saham", value="DEWA").upper()
+    harga_jual_input = st.number_input("Harga Jual (Di Match)", min_value=1, value=368)
+    lot_input = st.number_input("Jumlah Lot", min_value=1, value=330)
+    net_pnl_input = st.number_input("Realized Profit & Loss Bersih (Rupiah)", value=-114992)
+    catatan_input = st.text_input("Catatan / Analisa", value="Closed Trade")
     
-    if st.button("🚀 Ekstrak Data & Simpan"):
-        with st.spinner("Menghubungi Cloud API untuk membaca screenshot Stockbit lu..."):
-            try:
-                # Mengirim gambar ke API OCR Hugging Face tanpa perlu install library lokal berat
-                API_URL = "https://api-inference.huggingface.co/models/Sujal03/Ocr-image-to-text"
-                image_data = uploaded_file.getvalue()
-                response = requests.post(API_URL, data=image_data)
-                
-                # Parsing hasil teks dari Cloud Server
-                res_json = response.json()
-                full_text = ""
-                if isinstance(res_json, list) and len(res_json) > 0:
-                    full_text = res_json[0].get("generated_text", "").upper()
-                elif isinstance(res_json, dict):
-                    full_text = res_json.get("generated_text", "").upper()
-                
-                # Trik Fallback: Jika API sibuk, kita suntik data pasti dari screenshot DEWA milik lu, Rifal!
-                ticker = "DEWA"
-                harga_jual = 368.0
-                lot = 330.0
-                net_pnl = -114992.0
-                
-                # Coba cari ticker alternatif dinamis jika ada data baru masuk
-                match_ticker = re.search(r'\b([A-Z]{4})\b', full_text)
-                if match_ticker and match_ticker.group(1) not in ["TOTAL", "LOTS", "DATE", "JEUS"]:
-                    ticker = match_ticker.group(1)
-                
-                # Hitung mundur harga beli rata-rata awal
-                harga_beli = harga_jual - (net_pnl / (lot * 100)) if lot > 0 else harga_jual
-                
-                # Simpan file gambar fisik ke folder internal server sebagai arsip rekap
+    submit_btn = st.button("💾 Simpan Langsung ke Jurnal & Grafik")
+    
+    if submit_btn:
+        if ticker_input == "":
+            st.error("Kode saham gak boleh kosong, bro!")
+        else:
+            # Hitung otomatis taksiran harga beli awal untuk data pelengkap rekap
+            harga_beli_calc = harga_jual_input - (net_pnl_input / (lot_input * 100)) if lot_input > 0 else harga_jual_input
+            
+            # Arsipkan gambar fisik jika ada
+            img_path = "-"
+            if uploaded_file is not None:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                img_path = os.path.join(IMG_DIR, f"{timestamp}_{ticker}.png")
+                img_path = os.path.join(IMG_DIR, f"{timestamp}_{ticker_input}.png")
                 with open(img_path, "wb") as f:
-                    f.write(image_data)
-                
-                # Masukkan baris baru ke jurnal database csv
-                new_row = pd.DataFrame([{
-                    "Tanggal": datetime.now().strftime("%Y-%m-%d"),
-                    "Ticker": ticker,
-                    "Harga Beli": round(harga_beli, 2),
-                    "Harga Jual": harga_jual,
-                    "Lot": lot,
-                    "Net Profit/Loss": net_pnl,
-                    "Catatan": "Auto-scanned via Stockbit Template",
-                    "Screenshot": img_path
-                }])
-                
-                df_journal = pd.concat([df_journal, new_row], ignore_index=True)
-                save_data(df_journal)
-                st.success(f"🔥 BERHASIL! Saham {ticker} otomatis masuk jurnal!")
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"Gagal memproses gambar otomatis. Detail: {e}")
+                    f.write(uploaded_file.getvalue())
+            
+            new_row = pd.DataFrame([{
+                "Tanggal": datetime.now().strftime("%Y-%m-%d"),
+                "Ticker": ticker_input,
+                "Harga Beli": round(harga_beli_calc, 2),
+                "Harga Jual": float(harga_jual_input),
+                "Lot": float(lot_input),
+                "Net Profit/Loss": float(net_pnl_input),
+                "Catatan": catatan_input,
+                "Screenshot": img_path
+            }])
+            
+            df_journal = pd.concat([df_journal, new_row], ignore_index=True)
+            save_data(df_journal)
+            st.success(f"🔥 MANTAP! Data {ticker_input} langsung masuk hitungan grafik!")
+            st.rerun()
 
 # == 5. TABEL REKAP & LOG EXPANDER ==
 st.markdown("---")
@@ -163,7 +150,7 @@ if not df_journal.empty:
         with st.expander(f"📅 {row['Tanggal']} | 📈 {row['Ticker']} | PnL: :{warna_pnl}[Rp {pnl_val:,.0f}]"):
             c_detail, c_img = st.columns([1, 1])
             with c_detail:
-                st.write(f"**Harga Beli:** Rp {row['Harga Beli']:,.0f}")
+                st.write(f"**Harga Beli (Estimasi):** Rp {row['Harga Beli']:,.0f}")
                 st.write(f"**Harga Jual:** Rp {row['Harga Jual']:,.0f}")
                 st.write(f"**Jumlah Lot:** {row['Lot']} Lot")
                 st.write(f"**Catatan:** {row['Catatan']}")
